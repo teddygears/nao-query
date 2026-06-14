@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>nao-query</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" />
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-2: #1f232c;
+      --border: #2a2f3a;
+      --text: #e5e7eb;
+      --muted: #9aa3b2;
+      --accent: #7c9cff;
+      --accent-2: #5b7ce0;
+      --danger: #e06b6b;
+      --ok: #5bc48a;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif; font-size: 13px; }
+    .app { display: grid; grid-template-columns: 240px 1fr; grid-template-rows: 44px 1fr; height: 100vh; }
+    .header { grid-column: 1 / -1; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--panel); gap: 12px; }
+    .header .logo { font-weight: 600; letter-spacing: .5px; }
+    .header .spacer { flex: 1; }
+    .sidebar { border-right: 1px solid var(--border); background: var(--panel); padding: 10px; overflow-y: auto; }
+    .sidebar h3 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 12px 8px 6px; letter-spacing: .5px; }
+    .sidebar .conn { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+    .sidebar .conn:hover { background: var(--panel-2); }
+    .sidebar .conn.active { background: var(--accent-2); color: white; }
+    .sidebar .conn small { color: var(--muted); display: block; font-size: 11px; }
+    .sidebar .conn.active small { color: rgba(255,255,255,.8); }
+    .sidebar .history-item { padding: 6px 8px; border-radius: 4px; font-size: 12px; cursor: pointer; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar .history-item:hover { background: var(--panel-2); color: var(--text); }
+    .main { display: grid; grid-template-rows: 300px 1fr; overflow: hidden; }
+    .editor-wrap { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; }
+    .editor-toolbar { display: flex; align-items: center; padding: 6px 10px; gap: 8px; background: var(--panel); border-bottom: 1px solid var(--border); }
+    .editor-toolbar .meta { color: var(--muted); font-size: 12px; }
+    .CodeMirror { height: 100% !important; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+    .results-wrap { overflow: auto; padding: 0; }
+    .results-toolbar { position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--border); padding: 6px 10px; display: flex; align-items: center; gap: 8px; z-index: 2; }
+    .results-toolbar .status { color: var(--muted); font-size: 12px; }
+    .results-toolbar .status.err { color: var(--danger); }
+    .results-toolbar .status.ok { color: var(--ok); }
+    button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); padding: 5px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.primary:hover { background: var(--accent-2); }
+    button.danger { color: var(--danger); }
+    button.copy { background: #2a3f6b; color: white; border-color: #3d5aa3; }
+    button.copy.copied { background: var(--ok); border-color: var(--ok); }
+    table { border-collapse: collapse; width: auto; min-width: 100%; font-size: 12.5px; }
+    thead th { position: sticky; top: 34px; background: #242833; color: var(--accent); text-align: left; padding: 8px 14px; border-bottom: 2px solid var(--border); border-right: 1px solid #2a2f3a; z-index: 1; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; }
+    thead th:last-child { border-right: none; }
+    thead th .type { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; font-size: 10.5px; }
+    tbody td { padding: 6px 14px; border-bottom: 1px solid #20242d; border-right: 1px solid #20242d; vertical-align: top; white-space: nowrap; font-family: "SF Mono", Menlo, Consolas, monospace; color: #d7dbe3; }
+    tbody td:last-child { border-right: none; }
+    tbody td.wrap { white-space: pre-wrap; word-break: break-word; max-width: 480px; }
+    tbody tr:nth-child(even) { background: #141821; }
+    tbody tr:hover { background: #1d2533; }
+    .null { color: #6b7282; font-style: italic; font-family: inherit; }
+    .num { color: #7cc4ff; text-align: right; }
+    .bool { color: #d19bff; }
+    .rownum { color: var(--muted); padding-right: 14px; user-select: none; font-size: 11px; border-right: 1px solid #20242d; }
+    .empty-state { padding: 24px; color: var(--muted); text-align: center; }
+    input, select { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 13px; width: 100%; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 10; }
+    .modal-backdrop.open { display: flex; }
+    .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; width: 520px; max-height: 90vh; overflow-y: auto; }
+    .modal h2 { margin: 0 0 12px; font-size: 16px; }
+    .form-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .form-heading h2 { margin: 0; }
+    .field { margin-bottom: 10px; }
+    .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
+    .row { display: flex; gap: 8px; }
+    .row .field { flex: 1; }
+    .modal-actions { display: flex; justify-content: space-between; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .modal-actions .right { display: flex; gap: 8px; }
+    .toast { position: fixed; bottom: 20px; right: 20px; background: var(--panel-2); border: 1px solid var(--border); padding: 10px 14px; border-radius: 6px; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.3); z-index: 20; }
+    .toast.ok { border-color: var(--ok); }
+    .toast.err { border-color: var(--danger); color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="logo">nao-query</div>
+      <select id="conn-select" style="width: 260px"></select>
+      <button id="btn-manage">Connections</button>
+      <div class="spacer"></div>
+      <div class="meta" id="conn-meta"></div>
+    </div>
+
+    <aside class="sidebar">
+      <h3>History</h3>
+      <div id="history-list"></div>
+      <div style="margin-top:10px"><button id="btn-clear-history" class="danger" style="width:100%">Clear history</button></div>
+    </aside>
+
+    <div class="main">
+      <div class="editor-wrap">
+        <div class="editor-toolbar">
+          <button id="btn-clear">Clear</button>
+          <button id="btn-paste">Paste</button>
+          <button id="btn-run" class="primary">Run ▸ (⏎)</button>
+          <span class="meta">Enter to run · Shift+Enter for newline · tab indents</span>
+          <div class="spacer" style="flex:1"></div>
+        </div>
+        <textarea id="editor"></textarea>
+      </div>
+
+      <div class="results-wrap" id="results">
+        <div class="results-toolbar">
+          <button id="btn-copy" class="copy" disabled>Copy JSON</button>
+          <button id="btn-copy-csv" disabled>Copy CSV</button>
+          <span class="status" id="status">Ready. Add a connection to start.</span>
+          <div style="flex:1"></div>
+        </div>
+        <div id="results-body" class="empty-state">No results yet.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal">
+    <div class="modal">
+      <h2 id="modal-title">Manage connections</h2>
+      <div id="conn-list"></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;" />
+      <div class="form-heading">
+        <h2 style="font-size:14px">Add / edit connection</h2>
+        <button type="button" id="btn-new-connection">New connection</button>
+      </div>
+      <form id="conn-form">
+        <input type="hidden" id="f-id" />
+        <div class="field"><label>Name</label><input id="f-name" placeholder="Prod Postgres" required /></div>
+        <div class="row">
+          <div class="field"><label>Host</label><input id="f-host" placeholder="34.64.99.108" required /></div>
+          <div class="field" style="max-width:90px"><label>Port</label><input id="f-port" value="5432" /></div>
+        </div>
+        <div class="field"><label>Database</label><input id="f-database" placeholder="mydb" required /></div>
+        <div class="row">
+          <div class="field"><label>User</label><input id="f-user" required /></div>
+          <div class="field"><label>Password</label><input id="f-password" type="password" placeholder="leave blank to keep existing" /></div>
+        </div>
+        <div class="field"><label>SSL Mode</label>
+          <select id="f-sslmode">
+            <option>prefer</option><option>require</option><option>disable</option>
+            <option>allow</option><option>verify-ca</option><option>verify-full</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-test">Test</button>
+          <div class="right">
+            <button type="button" id="btn-close">Close</button>
+            <button type="submit" class="primary">Save</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast-mount"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
