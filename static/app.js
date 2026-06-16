@@ -189,6 +189,7 @@ async function runQuery() {
   $("#status").textContent = "Running…";
   $("#status").className = "status";
   $("#btn-copy").disabled = true;
+  $("#btn-copy-json-packet").disabled = true;
   $("#btn-copy-csv").disabled = true;
 
   try {
@@ -203,6 +204,7 @@ async function runQuery() {
     $("#status").textContent = `${stmtLabel}${data.rowcount} row(s) · ${data.elapsed_ms}ms · ${data.connection_name || ""}`;
     $("#status").className = data.ok ? "status ok" : "status err";
     $("#btn-copy").disabled = false;
+    $("#btn-copy-json-packet").disabled = false;
     $("#btn-copy-csv").disabled = !data.results || data.results.every((r) => !r.columns?.length);
   } catch (err) {
     // Keep the error on currentResult so copy works for errors too.
@@ -219,6 +221,7 @@ async function runQuery() {
     $("#status").textContent = `Error — ${err.message}`;
     $("#status").className = "status err";
     $("#btn-copy").disabled = false;
+    $("#btn-copy-json-packet").disabled = false;
     $("#btn-copy-csv").disabled = true;
   }
   loadHistory();
@@ -335,57 +338,50 @@ function renderResults(data) {
   });
 }
 
-// ---------- Copy JSON ----------
-$("#btn-copy").addEventListener("click", async () => {
-  if (!currentResult) return;
-  const text = formatJSON(currentResult);
-  try {
+// ---------- Copy helpers ----------
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
-    const btn = $("#btn-copy");
-    btn.classList.add("copied");
-    btn.textContent = "Copied ✓";
-    setTimeout(() => { btn.classList.remove("copied"); btn.textContent = "Copy JSON"; }, 1500);
-  } catch (err) { toast("Copy failed: " + err.message, "err"); }
-});
-
-$("#btn-copy-csv").addEventListener("click", async () => {
-  if (!currentResult) return;
-  const esc = (v) => {
-    if (v === null || v === undefined) return "";
-    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  // Use first non-empty result if multi-result
-  const results = currentResult.results || [];
-  const r = results.find((x) => x.ok && x.columns?.length) || results[0];
-  if (!r || !r.columns?.length) {
-    toast("No tabular result to copy", "err");
     return;
   }
-  const lines = [r.columns.map((c) => c.name).join(",")];
-  r.rows.forEach((row) => lines.push(r.columns.map((c) => esc(row[c.name])).join(",")));
-  await navigator.clipboard.writeText(lines.join("\n"));
-  toast(results.length > 1 ? `CSV copied (statement 1 of ${results.length})` : "CSV copied");
-});
 
-function formatJSON(r) {
-  // Build a clean JSON payload: query + results per statement
+  const el = document.createElement("textarea");
+  el.value = text;
+  el.setAttribute("readonly", "");
+  el.style.position = "fixed";
+  el.style.top = "-1000px";
+  document.body.appendChild(el);
+  el.select();
+  const ok = document.execCommand("copy");
+  el.remove();
+  if (!ok) throw new Error("clipboard API unavailable");
+}
+
+function setCopied(button, label) {
+  button.classList.add("copied");
+  button.textContent = "Copied ✓";
+  setTimeout(() => {
+    button.classList.remove("copied");
+    button.textContent = label;
+  }, 1500);
+}
+
+function buildJsonPayload(r) {
   const output = {
     connection: r.connection_name || "unknown",
     sql: r.sql,
     elapsed_ms: r.elapsed_ms,
   };
 
-  // Top-level connection error (no individual results)
   if (r.error && !(r.results && r.results.length)) {
     output.error = r.error;
-    return JSON.stringify(output, null, 2);
+    return output;
   }
 
   const results = r.results || [];
   if (!results.length) {
     output.results = [];
-    return JSON.stringify(output, null, 2);
+    return output;
   }
 
   output.results = results.map((res) => {
@@ -405,7 +401,83 @@ function formatJSON(r) {
     };
   });
 
-  return JSON.stringify(output, null, 2);
+  return output;
+}
+
+function resultToCsv(r) {
+  if (!r || !r.ok || !r.columns?.length) return "";
+  const esc = (v) => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [r.columns.map((c) => esc(c.name)).join(",")];
+  (r.rows || []).forEach((row) => lines.push(r.columns.map((c) => esc(row[c.name])).join(",")));
+  return lines.join("\n");
+}
+
+function firstTabularResult(results) {
+  const index = results.findIndex((x) => x.ok && x.columns?.length);
+  return index === -1 ? { result: null, index: -1 } : { result: results[index], index };
+}
+
+function buildJsonCopy(r) {
+  const jsonText = JSON.stringify(buildJsonPayload(r), null, 2);
+  const results = r.results || [];
+  const csvBlocks = results
+    .map((res, idx) => ({ res, idx, csv: resultToCsv(res) }))
+    .filter((item) => item.csv)
+    .map((item) => {
+      const label = results.length > 1 ? `Statement ${item.idx + 1} CSV` : "CSV";
+      return `${label}:\n\`\`\`csv\n${item.csv}\n\`\`\``;
+    });
+
+  return [
+    "nao-query result",
+    "",
+    "JSON:",
+    "```json",
+    jsonText,
+    "```",
+    "",
+    csvBlocks.length ? csvBlocks.join("\n\n") : "CSV: no tabular result",
+  ].join("\n");
+}
+
+// ---------- Copy JSON ----------
+$("#btn-copy").addEventListener("click", async () => {
+  if (!currentResult) return;
+  const text = formatJSON(currentResult);
+  try {
+    await writeClipboard(text);
+    setCopied($("#btn-copy"), "Copy JSON");
+  } catch (err) { toast("Copy failed: " + err.message, "err"); }
+});
+
+$("#btn-copy-json-packet").addEventListener("click", async () => {
+  if (!currentResult) return;
+  try {
+    await writeClipboard(buildJsonCopy(currentResult));
+    setCopied($("#btn-copy-json-packet"), "Copy to JSON");
+  } catch (err) { toast("Copy failed: " + err.message, "err"); }
+});
+
+$("#btn-copy-csv").addEventListener("click", async () => {
+  if (!currentResult) return;
+  const results = currentResult.results || [];
+  const { result, index } = firstTabularResult(results);
+  if (!result) {
+    toast("No tabular result to copy", "err");
+    return;
+  }
+  try {
+    await writeClipboard(resultToCsv(result));
+    toast(results.length > 1 ? `CSV copied (statement ${index + 1} of ${results.length})` : "CSV copied");
+  } catch (err) { toast("Copy failed: " + err.message, "err"); }
+});
+
+function formatJSON(r) {
+  return JSON.stringify(buildJsonPayload(r), null, 2);
 }
 
 // ---------- History ----------

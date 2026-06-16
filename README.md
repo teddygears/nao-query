@@ -1,6 +1,6 @@
 # nao-query
 
-Minimal local Postgres query runner with a web UI. Multi-connection support, one-click "Copy JSON" to grab results as structured JSON.
+Minimal local Postgres query runner with a web UI. Multi-connection support, one-click "Copy JSON" to grab results as structured JSON, and "Copy to JSON" to grab a JSON + CSV packet.
 
 ## Setup
 
@@ -26,11 +26,13 @@ Open http://localhost:5050
 - Type SQL in the editor
 - `Cmd+Enter` (or click **Run**) to execute
 - Click **Copy JSON** → copies query + result as structured JSON
+- Click **Copy to JSON** → copies structured JSON plus CSV blocks for tabular results
 
 ## Features
 
 - **Multi-statement queries** — run multiple SQL statements separated by `;`, each rendered independently
 - **Copy JSON** — copies the query and results as a clean JSON object (SQL, columns, rows, metadata)
+- **Copy to JSON** — copies the JSON packet and CSV derived from the same result data, so downstream tools can use either format
 - **Copy CSV** — copies the first result as CSV
 - **Connection management** — save, edit, test, and switch between connections
 - **Query history** — last 200 queries, click to restore
